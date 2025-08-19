@@ -1,0 +1,18 @@
+id: transferCustomerToVendorPayloadDtoStep
+name: transfer_item
+type: business
+desc: "Transfer customer data to vendor payload dto"
+params:
+  resultContextKey: "${args.resultContextKey}"
+  defaults:
+    ref: stepResult
+    refValueKey: customerData
+    refValueType: map
+  destination:
+    refValueKey: "${args.resultContextKey}"
+  transfers:
+    - source:
+        fields:
+          - "decryptedMobileNumber:mobile"
+          - "decryptedPan:pan"
+          - "decryptedFullName:name"

@@ -1,0 +1,13 @@
+id: declarativeVendorRestExecuteStep
+name: declarative_vendor_rest_execute
+type: business
+desc: "Execute REST API call to get vendor rates using dynamic endpoint"
+params:
+  vendorRequiredData:
+    required: false
+    holder: "stepDataSomething"
+  resultContextKey: "${args.resultContextKey}"
+  mappers:
+    - endPointKey: "vendorEndPointName"
+    - payloadKey: "vendorPayloadData"
+    - reponseData: "vendorResponseData"

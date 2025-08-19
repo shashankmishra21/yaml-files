@@ -1,0 +1,16 @@
+id: transformPreviousReportToVendorResponseDataStep
+name: transform_json_string_to_map_data
+type: business
+desc: "Transform data from db to vendor json"
+branches:
+  true: experianNormalizeReport
+params:
+  resultContextKey: "${args.resultContextKey}"
+  defaults:
+    ref: stepResult
+    refValueKey: previousReportData
+    refValueType: map
+  destination:
+    refValueKey: vendorJsonResponseData
+  source:
+    dataKey: "rres"

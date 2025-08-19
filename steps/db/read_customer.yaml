@@ -1,0 +1,25 @@
+id: readInternalCustomerIdStep
+name: declarative_read_item
+type: db
+desc: "Read order details for payment"
+params:
+  defaults:
+    ref: "stepResult"
+    refValueKey: "${resultContextKey}"
+    refValueType: map
+  mode: declarative
+  table: "${table}"
+  dbParams:
+    projectionFields: ["icid", "uphn", "upan", "ufn"]
+    requiredKeys: ["pk", "sk"]
+  fields:
+    - name: pk
+      pattern: "copy"
+      source:
+        refValueKey: "bodyData"
+        dataKey: "customerId"
+        dataType: "string"
+    - name: sk
+      pattern: "simple"
+      value: "PROFILE#"
+  resultContextKey: "${resultContextKey}"

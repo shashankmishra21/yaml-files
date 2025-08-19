@@ -1,0 +1,36 @@
+id: declarativeQueryItemReadReportResponseStep
+name: declarative_query_item
+type: db
+desc: "Query vendors existing in the system"
+branches:
+  true: transformPreviousReportToVendorResponseDataStep
+params:
+  result:
+    outcome: "singleElement"
+  defaults:
+    ref: "stepResult"
+    refValueKey: "previousReportData"
+    refValueType: map
+  mode: declarative
+  table: "${args.table}"
+  dbParams:
+    projectionFields: "${args.projectionFields}"
+    requiredKeys: ["pk", "sk"]
+  fields:
+    - name: pk
+      pattern: "copy"
+      source:
+        refValueKey: "customerData"
+        dataKey: "icid"
+        dataType: "string"
+    - name: sk
+      pattern: "query"
+      query:
+        evaluator: "beginsWith"
+        field:
+          pattern: "simple"
+          value: "202"
+  resultContextKey: "previousReportData"
+  errorContext:
+    codeMessage:
+      - ErrCodeDataNotFound: "No vendors found in the system"

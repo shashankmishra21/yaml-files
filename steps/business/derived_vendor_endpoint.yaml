@@ -1,0 +1,9 @@
+id: derivedDataStep
+name: derived_data
+type: business
+desc: "Derive vendor endpoint name based on routing logic"
+params:
+  resultContextKey: "${resultContextKey}"
+  derivedFields:
+    - outputField: "vendorEndPointName"
+      fixedValue: "paysprint_get_experian_report"

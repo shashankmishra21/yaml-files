@@ -1,0 +1,4 @@
+id: requestPayloadStep
+name: validate
+type: business
+desc: "Validate the request payload"

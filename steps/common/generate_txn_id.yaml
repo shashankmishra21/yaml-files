@@ -1,0 +1,8 @@
+id: generateTxnIdStep
+name: txn_id_gen
+type: business
+desc: "Generate a unique for payment"
+params:
+  idGeneratorKey: "idGenerator"
+  resultContextKey: "requestData"
+  outputField: "${args.outputField}"

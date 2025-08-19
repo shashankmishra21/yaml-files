@@ -1,0 +1,54 @@
+id: decryptCustomerData
+name: decrypt_encrypted_data
+type: business
+desc: "Decrypt AES encrypted mobile number"
+params:
+  resultContextKey: "${resultContextKey}"
+  defaults:
+    source:
+      ref: "stepResult"
+      dataType: "string"
+      pattern: "aes"
+  keys:
+    - type: env
+      name: BS_AES_MOBILE_KEY
+  decryptions:
+    - input:
+        field:
+          pattern: "stepResult"
+          name: "uphn"
+        source:
+          refValueKey: "customerData"
+          dataKey: "uphn"
+      output:
+        source:
+          refValueKey: "customerData"
+          dataKey: "decryptedMobileNumber"
+    - keys:
+        - type: env
+          name: BS_AES_CUSTOMER_KEY
+      input:
+        field:
+          pattern: "stepResult"
+          name: "upan"
+        source:
+          refValueKey: "customerData"
+          dataKey: "upan"
+      output:
+        source:
+          refValueKey: "customerData"
+          dataKey: "decryptedPan"
+    - keys:
+        - type: env
+          name: BS_AES_CUSTOMER_KEY
+      input:
+        field:
+          pattern: "stepResult"
+          name: "ufn"
+        source:
+          refValueKey: "customerData"
+          dataKey: "ufn"
+      output:
+        source:
+          refValueKey: "customerData"
+          dataKey: "decryptedFullName"

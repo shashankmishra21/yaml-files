@@ -1,0 +1,168 @@
+id: experianNormalizeReport
+name: vendor_response_handler_v2
+type: business
+desc: "Normalize bureau payload (corrected schema) into internal structure"
+branches:
+  true: responseMapperStep
+params:
+  defaults:
+    ref: stepResult
+    refValueKey: vendorJsonResponseData
+    refValueType: map
+  destination:
+    refValueKey: vendorToDb
+  jsonFieldName: "vendorToDbJson"
+  resultContextKey: "${args.resultContextKey}"
+  response:
+    - code: 200
+      actions:
+        map:
+          - data.report.CreditProfileHeader.ReportNumber: metadata.reportNumber
+          - data.credit_score: dashboard.score
+          - data.Match_result.Exact_match: metadata.exactMatch
+          - data.name: userProfile.fullName
+          - data.mobile: userProfile.mobile
+          - data.pan: userProfile.pan
+          - data.Current_Application.Current_Application_Details.Current_Applicant_Details.Gender_code: userProfile.gender_code
+          - data.report.Current_Application.Current_Application_Details.Current_Applicant_Details.Date_Of_Birth_Applicant: userProfile.dob
+          - data.report.Current_Application.Current_Application_Details.Current_Applicant_Details.EMailId: userProfile.email
+          - data.report.CreditProfileHeader.ReportDate: reportSummary.reportDateYmdInt
+          - data.report.SCORE.FCIREXScore: reportSummary.score
+          - data.report.CAIS_Account.CAIS_Summary.Credit_Account.CreditAccountTotal: reportSummary.accountsTotal
+          - data.report.CAIS_Account.CAIS_Summary.Credit_Account.CreditAccountActive: reportSummary.accountsActive
+          - data.report.CAIS_Account.CAIS_Summary.Credit_Account.CreditAccountClosed: reportSummary.accountsClosed
+          - data.report.CAIS_Account.CAIS_Summary.Credit_Account.CreditAccountDefault: reportSummary.defaults
+          - data.report.CAIS_Account.CAIS_Summary.Total_Outstanding_Balance.Outstanding_Balance_All: reportSummary.outstandingTotal
+          - data.report.CAIS_Account.CAIS_Summary.Total_Outstanding_Balance.Outstanding_Balance_Secured: reportSummary.outstandingSecured
+          - data.report.CAIS_Account.CAIS_Summary.Total_Outstanding_Balance.Outstanding_Balance_UnSecured: reportSummary.outstandingUnsecured
+          - data.report.NonCreditCAPS.CAPS_Summary.CapsLast7Days: reportSummary.noncredit.capsLast7Days
+          - data.report.NonCreditCAPS.CAPS_Summary.CapsLast30Days: reportSummary.noncredit.capsLast30Days
+          - data.report.NonCreditCAPS.CAPS_Summary.CapsLast90Days: reportSummary.noncredit.capsLast90Days
+          - data.report.NonCreditCAPS.CAPS_Summary.CapsLast180Days: reportSummary.noncredit.capsLast180Days
+          - data.report.CAPS.CAPS_Summary.CapsLast7Days: reportSummary.credit.capsLast7Days
+          - data.report.CAPS.CAPS_Summary.CapsLast30Days: reportSummary.credit.capsLast30Days
+          - data.report.CAPS.CAPS_Summary.CapsLast90Days: reportSummary.credit.capsLast90Days
+          - data.report.CAPS.CAPS_Summary.CapsLast180Days: reportSummary.credit.capsLast180Days
+        set:
+          - userProfile.incomeCurrency: "INR"
+          - reportSummary.currency: "INR"
+        transform:
+          - userProfile.dob: normalize_date_yyyymmdd(userProfile.dob)
+          - reportSummary.reportDate: normalize_date_yyyymmdd(reportSummary.reportDateYmdInt)
+          - reportSummary.lastLogin: null_to_null()
+          - reportSummary.scoreGrade: score_to_grade(reportSummary.score)
+          - reportSummary.accountsActive: to_int_or_null(reportSummary.accountsActive)
+          - reportSummary.accountsClosed: to_int_or_null(reportSummary.accountsClosed)
+          - reportSummary.accountsTotal: to_int_or_null(reportSummary.accountsTotal)
+          - reportSummary.defaults: to_int_or_null(reportSummary.defaults)
+          - reportSummary.outstandingTotal: to_number_or_null(reportSummary.outstandingTotal)
+          - reportSummary.outstandingSecured: to_number_or_null(reportSummary.outstandingSecured)
+          - reportSummary.outstandingUnsecured: to_number_or_null(reportSummary.outstandingUnsecured)
+        map_lists:
+          - from: data.report.CAIS_Account.CAIS_Account_DETAILS
+            to: accounts
+            item:
+              map:
+                - Open_Date: openDate
+                - Date_Closed: closeDate
+                - Date_Reported: dateReported
+                - DateOfAddition: dateOfAddition
+                - Date_of_Last_Payment: lastPaymentDate
+                - Date_of_First_Delinquency: dateOfFirstDelinquency
+                - DefaultStatusDate: defaultStatusDate
+                - LitigationStatusDate: litigationStatusDate
+                - WriteOffStatusDate: writeOffStatusDate
+                - Identification_Number: accountId
+                - Subscriber_Name: lenderName
+                - Account_Number: accountNumber
+                - Portfolio_Type: portfolioType
+                - Account_Type: accountType
+                - Highest_Credit_or_Original_Loan_Amount: originalLoanAmount
+                - Current_Balance: currentBalance
+                - Credit_Limit_Amount: creditLimit
+                - Payment_Rating: paymentRating
+                - Account_Status: accountStatus
+                - Rate_of_Interest: interestRate
+                - Repayment_Tenure: loanTermMonths
+                - Value_of_Collateral: collateralValue
+                - Type_of_Collateral: collateralType
+                - CurrencyCode: currency
+              transform:
+                - openDate: normalize_date_yyyymmdd(openDate)
+                - closeDate: normalize_date_yyyymmdd(closeDate)
+                - dateReported: normalize_date_yyyymmdd(dateReported)
+                - dateOfAddition: normalize_date_yyyymmdd(dateOfAddition)
+                - lastPaymentDate: normalize_date_yyyymmdd(lastPaymentDate)
+                - dateOfFirstDelinquency: normalize_date_yyyymmdd(dateOfFirstDelinquency)
+                - defaultStatusDate: normalize_date_yyyymmdd(defaultStatusDate)
+                - litigationStatusDate: normalize_date_yyyymmdd(litigationStatusDate)
+                - writeOffStatusDate: normalize_date_yyyymmdd(writeOffStatusDate)
+                - currentBalance: to_number_or_null(currentBalance)
+                - creditLimit: to_number_or_null(creditLimit)
+                - originalLoanAmount: to_number_or_null(originalLoanAmount)
+                - collateralValue: to_number_or_null(collateralValue)
+                - portfolioType: map_portfolio(portfolioType)
+                - accountType: map_account_type(accountType)
+                - accountStatus: map_status_code(accountStatus)
+                - interestRate: to_number_or_null(interestRate)
+                - loanTermMonths: to_int_or_null(loanTermMonths)
+              children:
+                - from: CAIS_Account_History
+                  to: paymentHistory
+                  item:
+                    map:
+                      - Year: year
+                      - Month: month
+                      - Days_Past_Due: daysPastDue
+                      - Asset_Classification: assetClassification
+                    transform:
+                      - year: to_int(year)
+                      - month: to_int(month)
+                      - daysPastDue: to_int(daysPastDue)
+              compactPaymentHistory:
+                enabled: true
+                targetField: paymentHistoryYearly
+                dropSource: true
+          - from: data.report.NonCreditCAPS.CAPS_Application_Details
+            to: creditInquiries
+            item:
+              map:
+                - ReportNumber: inquiryId
+                - Subscriber_Name: lenderName
+                - Date_of_Request: _rawInquiryDate
+                - Enquiry_Reason: purposeCode
+                - Amount_Financed: amountRequested
+              transform:
+                - inquiryDate: normalize_date_yyyymmdd(_rawInquiryDate)
+                - amountRequested: to_number_or_null(amountRequested)
+        aggregate:
+          - path: derivedStats.creditMix.byType
+            fn: count_by_account_type(accounts.accountType)
+          - path: derivedStats.creditMix.securedVsUnsecuredPercent
+            fn: get_secured_unsecured_percent(reportSummary.outstandingSecured, reportSummary.outstandingUnsecured)
+          - path: derivedStats.creditUtilization.overallPercent
+            fn: weighted_utilization(accounts)
+          - path: derivedStats.creditUtilization.perAccount
+            fn: per_account_utilization(accounts)
+          - path: derivedStats.creditUtilization.highUtilizationAccounts
+            fn: high_util_accounts(accounts, 75)
+          - path: derivedStats.ageOfCredit
+            fn: age_of_credit_stats(accounts)
+          - path: derivedStats.recentActivity
+            fn: recent_activity(accounts)
+          - path: derivedStats.paymentBehavior
+            fn: payment_behavior(accounts)
+          - path: derivedStats.delinquency
+            fn: delinquency_summary(accounts)
+          - path: derivedStats.hardEnquiries
+            fn: hard_enquiries_from_caps(data.report.CAPS)
+          - path: derivedStats.debtToIncome
+            fn: dti_placeholder()
+          - path: derivedStats.trends.scoreHistory
+            fn: single_score_point(reportSummary.reportDate, reportSummary.score)
+    - code: 400|401|404|409|422|429|500
+      actions:
+        map:
+          - message: error.message
+        set:
+          - error.code: "BUREAU_ERROR"

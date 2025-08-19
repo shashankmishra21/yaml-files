@@ -1,0 +1,29 @@
+id: buildPaySprintJwtTokenStep
+name: declarative_encrypted_jwt_token
+type: business
+desc: "Create HS256 JWT for PaySprint and save as Token in vendorHeaders"
+params:
+  resultContextKey: "${args.resultContextKey}"
+  fieldName: "${args.fieldName}"
+  source:
+    type: "env"
+    name: "PAYSPRINT_JWT_KEY"
+  alg: "HS256"
+  isBase64: false
+  treatAsBase64Text: true
+  claims:
+    - name: partnerId
+      source:
+        type: "env"
+        name: "PAYSPRINT_PARTNER_ID"
+    - name: reqid
+      source:
+        ref: "stepResult"
+        refValueKey: "requestData"
+        dataKey: "txnId"
+        dataType: "string"
+    - name: timestamp
+      source:
+        type: "time"
+        pattern: "now"
+        format: "unix"

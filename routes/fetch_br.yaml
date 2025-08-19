@@ -1,0 +1,71 @@
+path: /api/v1/fetch-br
+method: POST
+handlerKey: fetch_report
+actionName: value:fetch_report
+modelFactoryKey: fetch_report
+declarativeResponse: true
+declarativeRequest: true
+branchFeature: true
+
+response:
+  message: "Report fetched successfully"
+  statusCode: 200
+
+steps:
+  # 1. Validation
+  - !include steps/common/validate.yaml?resultContextKey=customerData&refValueKey=customerData
+  
+  # 2. Generate Transaction ID
+  - !include file: steps/common/generate_txn_id.yaml
+    args:
+      outputField: txnId
+      
+  # 3. Read Customer Data
+  - !include steps/db/read_customer.yaml?table=${BS_CUSTOMERS_TABLE_NAME}&resultContextKey=customerData
+  
+  # 4. Query Previous Report
+  - !include file: steps/db/query_prev_report.yaml
+    args:
+      table: ${BS_REPORTS_TABLE_NAME}
+      projectionFields: ["rres"]
+      
+  # 5. Decrypt Customer
+  - !include steps/business/decrypt_customer.yaml?resultContextKey=customerData
+  
+  # 6. Transfer to Vendor Payload
+  - !include file: steps/business/transfer_customer_to_vendor_payload.yaml
+    args:
+      resultContextKey: vendorPayloadData
+      
+  # 7. Build PaySprint JWT
+  - !include file: steps/business/build_paysprint_jwt.yaml
+    args:
+      resultContextKey: vendorHeadersData
+      fieldName: token
+      
+  # 8. Derive Vendor Endpoint
+  - !include steps/business/derived_vendor_endpoint.yaml?resultContextKey=derivedData
+  
+  # 9. Execute Vendor REST
+  - !include file: steps/vendor/execute_vendor_rest.yaml
+    args:
+      resultContextKey: customerData
+      
+  # 10. Save Vendor Raw
+  - !include file: steps/db/save_vendor_raw.yaml
+    args:
+      table: ${BS_REPORTS_TABLE_NAME}
+      resultContextKey: rawVendorResponseData
+      
+  # 11. Transform Previous Report
+  - !include file: steps/business/transform_prev_report.yaml
+    args:
+      resultContextKey: transformedData
+      
+  # 12. Experian Normalize
+  - !include file: steps/business/experian_normalize.yaml
+    args:
+      resultContextKey: creditReportData
+      
+  # 13. Response Mapper
+  - !include steps/business/response_mapper.yaml?refValueKey=vendorToDb

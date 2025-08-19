@@ -1,0 +1,58 @@
+id: putVendorRawResponseInDBStep
+name: declarative_save_data
+type: db
+desc: "Save vendor raw response in DB"
+params:
+  defaults:
+    ref: "stepResult"
+    refValueKey: "customerData"
+    refValueType: map
+  mode: declarative
+  table: "${args.table}"
+  dbParams:
+    keysToSave: ["pk", "sk", "rres"]
+  fields:
+    - name: pk
+      pattern: "key"
+      parts:
+        - name: year
+          type: source
+          source:
+            refValueKey: "requestData"
+            dataKey: "txnId"
+            dataType: "string"
+          transform:
+            type: substr
+            start: 0
+            end: 4
+        - name: month
+          type: source
+          source:
+            refValueKey: "requestData"
+            dataKey: "txnId"
+            dataType: "string"
+          transform:
+            type: substr
+            start: 4
+            end: 6
+        - name: customer literal in db
+          type: literal
+          value: "C"
+        - name: customer id
+          type: source
+          source:
+            dataKey: "icid"
+            dataType: "string"
+    - name: sk
+      pattern: "stepResult"
+      source:
+        refValueKey: "requestData"
+        dataKey: "txnId"
+        dataType: "string"
+    - name: rres
+      pattern: "stepResult"
+      source:
+        refValueKey: "vendorResponseBodyStringData"
+        dataKey: "body"
+        dataType: "string"
+  resultContextKey: "${args.resultContextKey}"

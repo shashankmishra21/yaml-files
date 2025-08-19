@@ -1,0 +1,12 @@
+id: responseMapperStep
+name: declarative_response_mapper
+type: business
+desc: "Map the response data to the response model"
+params:
+  defaults:
+    ref: "stepResult"
+    refValueKey: "${refValueKey}"
+    refValueType: map
+  map:
+    json:
+      ignoreKeys: true
