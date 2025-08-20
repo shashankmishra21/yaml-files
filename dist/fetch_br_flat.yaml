@@ -1,0 +1,520 @@
+path: /api/v1/fetch-br
+method: POST
+handlerKey: fetch_report
+actionName: value:fetch_report
+modelFactoryKey: fetch_report
+declarativeResponse: true
+declarativeRequest: true
+branchFeature: true
+
+response:
+  message: "Report fetched successfully"
+  statusCode: 200
+
+steps:
+  # 1. Validation
+  - id: requestPayloadStep
+    name: validate
+    type: business
+    desc: "Validate the request payload"
+
+  # 2. Generate Transaction ID
+  - id: generateTxnIdStep
+    name: txn_id_gen
+    type: business
+    desc: "Generate a unique for payment"
+    params:
+      idGeneratorKey: "idGenerator"
+      resultContextKey: "requestData"
+      outputField: "${args.outputField}"
+
+    # ---- args (preserved for reference) ----
+    # args:
+    # outputField: txnId
+
+  # 3. Read Customer Data
+  - id: readInternalCustomerIdStep
+    name: declarative_read_item
+    type: db
+    desc: "Read order details for payment"
+    params:
+      defaults:
+        ref: "stepResult"
+        refValueKey: "${resultContextKey}"
+        refValueType: map
+      mode: declarative
+      table: "${table}"
+      dbParams:
+        projectionFields: ["icid", "uphn", "upan", "ufn"]
+        requiredKeys: ["pk", "sk"]
+      fields:
+        - name: pk
+          pattern: "copy"
+          source:
+            refValueKey: "bodyData"
+            dataKey: "customerId"
+            dataType: "string"
+        - name: sk
+          pattern: "simple"
+          value: "PROFILE#"
+      resultContextKey: "${resultContextKey}"
+
+  # 4. Query Previous Report
+  - id: declarativeQueryItemReadReportResponseStep
+    name: declarative_query_item
+    type: db
+    desc: "Query vendors existing in the system"
+    branches:
+      true: transformPreviousReportToVendorResponseDataStep
+    params:
+      result:
+        outcome: "singleElement"
+      defaults:
+        ref: "stepResult"
+        refValueKey: "previousReportData"
+        refValueType: map
+      mode: declarative
+      table: "${args.table}"
+      dbParams:
+        projectionFields: "${args.projectionFields}"
+        requiredKeys: ["pk", "sk"]
+      fields:
+        - name: pk
+          pattern: "copy"
+          source:
+            refValueKey: "customerData"
+            dataKey: "icid"
+            dataType: "string"
+        - name: sk
+          pattern: "query"
+          query:
+            evaluator: "beginsWith"
+            field:
+              pattern: "simple"
+              value: "202"
+      resultContextKey: "previousReportData"
+      errorContext:
+        codeMessage:
+          - ErrCodeDataNotFound: "No vendors found in the system"
+
+    # ---- args (preserved for reference) ----
+    # args:
+    # table: ${BS_REPORTS_TABLE_NAME}
+    # projectionFields: ["rres"]
+
+  # 5. Decrypt Customer
+  - id: decryptCustomerData
+    name: decrypt_encrypted_data
+    type: business
+    desc: "Decrypt AES encrypted mobile number"
+    params:
+      resultContextKey: "${resultContextKey}"
+      defaults:
+        source:
+          ref: "stepResult"
+          dataType: "string"
+          pattern: "aes"
+      keys:
+        - type: env
+          name: BS_AES_MOBILE_KEY
+      decryptions:
+        - input:
+            field:
+              pattern: "stepResult"
+              name: "uphn"
+            source:
+              refValueKey: "customerData"
+              dataKey: "uphn"
+          output:
+            source:
+              refValueKey: "customerData"
+              dataKey: "decryptedMobileNumber"
+        - keys:
+            - type: env
+              name: BS_AES_CUSTOMER_KEY
+          input:
+            field:
+              pattern: "stepResult"
+              name: "upan"
+            source:
+              refValueKey: "customerData"
+              dataKey: "upan"
+          output:
+            source:
+              refValueKey: "customerData"
+              dataKey: "decryptedPan"
+        - keys:
+            - type: env
+              name: BS_AES_CUSTOMER_KEY
+          input:
+            field:
+              pattern: "stepResult"
+              name: "ufn"
+            source:
+              refValueKey: "customerData"
+              dataKey: "ufn"
+          output:
+            source:
+              refValueKey: "customerData"
+              dataKey: "decryptedFullName"
+
+  # 6. Transfer to Vendor Payload
+  - id: transferCustomerToVendorPayloadDtoStep
+    name: transfer_item
+    type: business
+    desc: "Transfer customer data to vendor payload dto"
+    params:
+      resultContextKey: "${args.resultContextKey}"
+      defaults:
+        ref: stepResult
+        refValueKey: customerData
+        refValueType: map
+      destination:
+        refValueKey: "${args.resultContextKey}"
+      transfers:
+        - source:
+            fields:
+              - "decryptedMobileNumber:mobile"
+              - "decryptedPan:pan"
+              - "decryptedFullName:name"
+    # ---- args (preserved for reference) ----
+    # args:
+    # resultContextKey: vendorPayloadData
+
+  # 7. Build PaySprint JWT
+  - id: buildPaySprintJwtTokenStep
+    name: declarative_encrypted_jwt_token
+    type: business
+    desc: "Create HS256 JWT for PaySprint and save as Token in vendorHeaders"
+    params:
+      resultContextKey: "${args.resultContextKey}"
+      fieldName: "${args.fieldName}"
+      source:
+        type: "env"
+        name: "PAYSPRINT_JWT_KEY"
+      alg: "HS256"
+      isBase64: false
+      treatAsBase64Text: true
+      claims:
+        - name: partnerId
+          source:
+            type: "env"
+            name: "PAYSPRINT_PARTNER_ID"
+        - name: reqid
+          source:
+            ref: "stepResult"
+            refValueKey: "requestData"
+            dataKey: "txnId"
+            dataType: "string"
+        - name: timestamp
+          source:
+            type: "time"
+            pattern: "now"
+            format: "unix"
+
+    # ---- args (preserved for reference) ----
+    # args:
+    # resultContextKey: vendorHeadersData
+    # fieldName: token
+
+  # 8. Derive Vendor Endpoint
+  - id: derivedDataStep
+    name: derived_data
+    type: business
+    desc: "Derive vendor endpoint name based on routing logic"
+    params:
+      resultContextKey: "${resultContextKey}"
+      derivedFields:
+        - outputField: "vendorEndPointName"
+          fixedValue: "paysprint_get_experian_report"
+
+  # 9. Execute Vendor REST
+  - id: declarativeVendorRestExecuteStep
+    name: declarative_vendor_rest_execute
+    type: business
+    desc: "Execute REST API call to get vendor rates using dynamic endpoint"
+    params:
+      vendorRequiredData:
+        required: false
+        holder: "stepDataSomething"
+      resultContextKey: "${args.resultContextKey}"
+      mappers:
+        - endPointKey: "vendorEndPointName"
+        - payloadKey: "vendorPayloadData"
+        - reponseData: "vendorResponseData"
+
+    # ---- args (preserved for reference) ----
+    # args:
+    # resultContextKey: customerData
+
+  # 10. Save Vendor Raw
+  - id: putVendorRawResponseInDBStep
+    name: declarative_save_data
+    type: db
+    desc: "Save vendor raw response in DB"
+    params:
+      defaults:
+        ref: "stepResult"
+        refValueKey: "customerData"
+        refValueType: map
+      mode: declarative
+      table: "${args.table}"
+      dbParams:
+        keysToSave: ["pk", "sk", "rres"]
+      fields:
+        - name: pk
+          pattern: "key"
+          parts:
+            - name: year
+              type: source
+              source:
+                refValueKey: "requestData"
+                dataKey: "txnId"
+                dataType: "string"
+              transform:
+                type: substr
+                start: 0
+                end: 4
+            - name: month
+              type: source
+              source:
+                refValueKey: "requestData"
+                dataKey: "txnId"
+                dataType: "string"
+              transform:
+                type: substr
+                start: 4
+                end: 6
+            - name: customer literal in db
+              type: literal
+              value: "C"
+            - name: customer id
+              type: source
+              source:
+                dataKey: "icid"
+                dataType: "string"
+        - name: sk
+          pattern: "stepResult"
+          source:
+            refValueKey: "requestData"
+            dataKey: "txnId"
+            dataType: "string"
+        - name: rres
+          pattern: "stepResult"
+          source:
+            refValueKey: "vendorResponseBodyStringData"
+            dataKey: "body"
+            dataType: "string"
+      resultContextKey: "${args.resultContextKey}"
+    # ---- args (preserved for reference) ----
+    # args:
+    # table: ${BS_REPORTS_TABLE_NAME}
+    # resultContextKey: rawVendorResponseData
+
+  # 11. Transform Previous Report
+  - id: transformPreviousReportToVendorResponseDataStep
+    name: transform_json_string_to_map_data
+    type: business
+    desc: "Transform data from db to vendor json"
+    branches:
+      true: experianNormalizeReport
+    params:
+      resultContextKey: "${args.resultContextKey}"
+      defaults:
+        ref: stepResult
+        refValueKey: previousReportData
+        refValueType: map
+      destination:
+        refValueKey: vendorJsonResponseData
+      source:
+        dataKey: "rres"
+    # ---- args (preserved for reference) ----
+    # args:
+    # resultContextKey: transformedData
+
+  # 12. Experian Normalize
+  - id: experianNormalizeReport
+    name: vendor_response_handler_v2
+    type: business
+    desc: "Normalize bureau payload (corrected schema) into internal structure"
+    branches:
+      true: responseMapperStep
+    params:
+      defaults:
+        ref: stepResult
+        refValueKey: vendorJsonResponseData
+        refValueType: map
+      destination:
+        refValueKey: vendorToDb
+      jsonFieldName: "vendorToDbJson"
+      resultContextKey: "${args.resultContextKey}"
+      response:
+        - code: 200
+          actions:
+            map:
+              - data.report.CreditProfileHeader.ReportNumber: metadata.reportNumber
+              - data.credit_score: dashboard.score
+              - data.Match_result.Exact_match: metadata.exactMatch
+              - data.name: userProfile.fullName
+              - data.mobile: userProfile.mobile
+              - data.pan: userProfile.pan
+              - data.Current_Application.Current_Application_Details.Current_Applicant_Details.Gender_code: userProfile.gender_code
+              - data.report.Current_Application.Current_Application_Details.Current_Applicant_Details.Date_Of_Birth_Applicant: userProfile.dob
+              - data.report.Current_Application.Current_Application_Details.Current_Applicant_Details.EMailId: userProfile.email
+              - data.report.CreditProfileHeader.ReportDate: reportSummary.reportDateYmdInt
+              - data.report.SCORE.FCIREXScore: reportSummary.score
+              - data.report.CAIS_Account.CAIS_Summary.Credit_Account.CreditAccountTotal: reportSummary.accountsTotal
+              - data.report.CAIS_Account.CAIS_Summary.Credit_Account.CreditAccountActive: reportSummary.accountsActive
+              - data.report.CAIS_Account.CAIS_Summary.Credit_Account.CreditAccountClosed: reportSummary.accountsClosed
+              - data.report.CAIS_Account.CAIS_Summary.Credit_Account.CreditAccountDefault: reportSummary.defaults
+              - data.report.CAIS_Account.CAIS_Summary.Total_Outstanding_Balance.Outstanding_Balance_All: reportSummary.outstandingTotal
+              - data.report.CAIS_Account.CAIS_Summary.Total_Outstanding_Balance.Outstanding_Balance_Secured: reportSummary.outstandingSecured
+              - data.report.CAIS_Account.CAIS_Summary.Total_Outstanding_Balance.Outstanding_Balance_UnSecured: reportSummary.outstandingUnsecured
+              - data.report.NonCreditCAPS.CAPS_Summary.CapsLast7Days: reportSummary.noncredit.capsLast7Days
+              - data.report.NonCreditCAPS.CAPS_Summary.CapsLast30Days: reportSummary.noncredit.capsLast30Days
+              - data.report.NonCreditCAPS.CAPS_Summary.CapsLast90Days: reportSummary.noncredit.capsLast90Days
+              - data.report.NonCreditCAPS.CAPS_Summary.CapsLast180Days: reportSummary.noncredit.capsLast180Days
+              - data.report.CAPS.CAPS_Summary.CapsLast7Days: reportSummary.credit.capsLast7Days
+              - data.report.CAPS.CAPS_Summary.CapsLast30Days: reportSummary.credit.capsLast30Days
+              - data.report.CAPS.CAPS_Summary.CapsLast90Days: reportSummary.credit.capsLast90Days
+              - data.report.CAPS.CAPS_Summary.CapsLast180Days: reportSummary.credit.capsLast180Days
+            set:
+              - userProfile.incomeCurrency: "INR"
+              - reportSummary.currency: "INR"
+            transform:
+              - userProfile.dob: normalize_date_yyyymmdd(userProfile.dob)
+              - reportSummary.reportDate: normalize_date_yyyymmdd(reportSummary.reportDateYmdInt)
+              - reportSummary.lastLogin: null_to_null()
+              - reportSummary.scoreGrade: score_to_grade(reportSummary.score)
+              - reportSummary.accountsActive: to_int_or_null(reportSummary.accountsActive)
+              - reportSummary.accountsClosed: to_int_or_null(reportSummary.accountsClosed)
+              - reportSummary.accountsTotal: to_int_or_null(reportSummary.accountsTotal)
+              - reportSummary.defaults: to_int_or_null(reportSummary.defaults)
+              - reportSummary.outstandingTotal: to_number_or_null(reportSummary.outstandingTotal)
+              - reportSummary.outstandingSecured: to_number_or_null(reportSummary.outstandingSecured)
+              - reportSummary.outstandingUnsecured: to_number_or_null(reportSummary.outstandingUnsecured)
+            map_lists:
+              - from: data.report.CAIS_Account.CAIS_Account_DETAILS
+                to: accounts
+                item:
+                  map:
+                    - Open_Date: openDate
+                    - Date_Closed: closeDate
+                    - Date_Reported: dateReported
+                    - DateOfAddition: dateOfAddition
+                    - Date_of_Last_Payment: lastPaymentDate
+                    - Date_of_First_Delinquency: dateOfFirstDelinquency
+                    - DefaultStatusDate: defaultStatusDate
+                    - LitigationStatusDate: litigationStatusDate
+                    - WriteOffStatusDate: writeOffStatusDate
+                    - Identification_Number: accountId
+                    - Subscriber_Name: lenderName
+                    - Account_Number: accountNumber
+                    - Portfolio_Type: portfolioType
+                    - Account_Type: accountType
+                    - Highest_Credit_or_Original_Loan_Amount: originalLoanAmount
+                    - Current_Balance: currentBalance
+                    - Credit_Limit_Amount: creditLimit
+                    - Payment_Rating: paymentRating
+                    - Account_Status: accountStatus
+                    - Rate_of_Interest: interestRate
+                    - Repayment_Tenure: loanTermMonths
+                    - Value_of_Collateral: collateralValue
+                    - Type_of_Collateral: collateralType
+                    - CurrencyCode: currency
+                  transform:
+                    - openDate: normalize_date_yyyymmdd(openDate)
+                    - closeDate: normalize_date_yyyymmdd(closeDate)
+                    - dateReported: normalize_date_yyyymmdd(dateReported)
+                    - dateOfAddition: normalize_date_yyyymmdd(dateOfAddition)
+                    - lastPaymentDate: normalize_date_yyyymmdd(lastPaymentDate)
+                    - dateOfFirstDelinquency: normalize_date_yyyymmdd(dateOfFirstDelinquency)
+                    - defaultStatusDate: normalize_date_yyyymmdd(defaultStatusDate)
+                    - litigationStatusDate: normalize_date_yyyymmdd(litigationStatusDate)
+                    - writeOffStatusDate: normalize_date_yyyymmdd(writeOffStatusDate)
+                    - currentBalance: to_number_or_null(currentBalance)
+                    - creditLimit: to_number_or_null(creditLimit)
+                    - originalLoanAmount: to_number_or_null(originalLoanAmount)
+                    - collateralValue: to_number_or_null(collateralValue)
+                    - portfolioType: map_portfolio(portfolioType)
+                    - accountType: map_account_type(accountType)
+                    - accountStatus: map_status_code(accountStatus)
+                    - interestRate: to_number_or_null(interestRate)
+                    - loanTermMonths: to_int_or_null(loanTermMonths)
+                  children:
+                    - from: CAIS_Account_History
+                      to: paymentHistory
+                      item:
+                        map:
+                          - Year: year
+                          - Month: month
+                          - Days_Past_Due: daysPastDue
+                          - Asset_Classification: assetClassification
+                        transform:
+                          - year: to_int(year)
+                          - month: to_int(month)
+                          - daysPastDue: to_int(daysPastDue)
+                  compactPaymentHistory:
+                    enabled: true
+                    targetField: paymentHistoryYearly
+                    dropSource: true
+              - from: data.report.NonCreditCAPS.CAPS_Application_Details
+                to: creditInquiries
+                item:
+                  map:
+                    - ReportNumber: inquiryId
+                    - Subscriber_Name: lenderName
+                    - Date_of_Request: _rawInquiryDate
+                    - Enquiry_Reason: purposeCode
+                    - Amount_Financed: amountRequested
+                  transform:
+                    - inquiryDate: normalize_date_yyyymmdd(_rawInquiryDate)
+                    - amountRequested: to_number_or_null(amountRequested)
+            aggregate:
+              - path: derivedStats.creditMix.byType
+                fn: count_by_account_type(accounts.accountType)
+              - path: derivedStats.creditMix.securedVsUnsecuredPercent
+                fn: get_secured_unsecured_percent(reportSummary.outstandingSecured, reportSummary.outstandingUnsecured)
+              - path: derivedStats.creditUtilization.overallPercent
+                fn: weighted_utilization(accounts)
+              - path: derivedStats.creditUtilization.perAccount
+                fn: per_account_utilization(accounts)
+              - path: derivedStats.creditUtilization.highUtilizationAccounts
+                fn: high_util_accounts(accounts, 75)
+              - path: derivedStats.ageOfCredit
+                fn: age_of_credit_stats(accounts)
+              - path: derivedStats.recentActivity
+                fn: recent_activity(accounts)
+              - path: derivedStats.paymentBehavior
+                fn: payment_behavior(accounts)
+              - path: derivedStats.delinquency
+                fn: delinquency_summary(accounts)
+              - path: derivedStats.hardEnquiries
+                fn: hard_enquiries_from_caps(data.report.CAPS)
+              - path: derivedStats.debtToIncome
+                fn: dti_placeholder()
+              - path: derivedStats.trends.scoreHistory
+                fn: single_score_point(reportSummary.reportDate, reportSummary.score)
+        - code: 400|401|404|409|422|429|500
+          actions:
+            map:
+              - message: error.message
+            set:
+              - error.code: "BUREAU_ERROR"
+    # ---- args (preserved for reference) ----
+    # args:
+    # resultContextKey: creditReportData
+
+  # 13. Response Mapper
+  - id: responseMapperStep
+    name: declarative_response_mapper
+    type: business
+    desc: "Map the response data to the response model"
+    params:
+      defaults:
+        ref: "stepResult"
+        refValueKey: "${refValueKey}"
+        refValueType: map
+      map:
+        json:
+          ignoreKeys: true
